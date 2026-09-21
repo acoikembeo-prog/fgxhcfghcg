@@ -1,0 +1,145 @@
+using UnityEngine;
+
+namespace GTAOpenWorld.Part1.Player
+{
+    public enum MovementState { Walk, Sprint, Crouch, Prone, Swimming, InAir }
+
+    [RequireComponent(typeof(CharacterController))]
+    public class FPSPlayerController : MonoBehaviour
+    {
+        [Header("Movement Speeds")]
+        public float walkSpeed = 4.5f;
+        public float sprintSpeed = 8.5f;
+        public float crouchSpeed = 2.2f;
+        public float proneSpeed = 1.0f;
+        public float swimSpeed = 3.5f;
+
+        [Header("Heights & Colliders")]
+        public float standHeight = 1.8f;
+        public float crouchHeight = 1.2f;
+        public float proneHeight = 0.5f;
+
+        [Header("Physics & Gravity")]
+        public float jumpHeight = 1.6f;
+        public float gravity = -19.62f;
+        public LayerMask waterLayer;
+
+        [Header("Current Status")]
+        public MovementState currentState = MovementState.Walk;
+        public bool isGrounded;
+        public bool isInWater;
+
+        private CharacterController controller;
+        private Vector3 velocity;
+        private Vector3 controllerCenter;
+
+        private void Awake()
+        {
+            controller = GetComponent<CharacterController>();
+        }
+
+        private void Update()
+        {
+            CheckEnvironment();
+            HandleStanceInput();
+            HandleMovement();
+        }
+
+        private void CheckEnvironment()
+        {
+            isGrounded = controller.isGrounded;
+            
+            // Kiểm tra nhân vật có đang chìm trong nước hay không
+            isInWater = Physics.CheckSphere(transform.position + Vector3.up * 0.5f, 0.4f, waterLayer);
+            
+            if (isInWater)
+            {
+                currentState = MovementState.Swimming;
+            }
+            else if (isGrounded && velocity.y < 0)
+            {
+                velocity.y = -2f; // Giữ nhân vật bám sát mặt đất
+            }
+        }
+
+        private void HandleStanceInput()
+        {
+            if (isInWater) return;
+
+            // Chuyển đổi giữa Ngồi (Crouch) và Nằm (Prone)
+            if (Input.GetKeyDown(KeyCode.C))
+            {
+                if (currentState == MovementState.Crouch) SetStance(MovementState.Walk, standHeight);
+                else SetStance(MovementState.Crouch, crouchHeight);
+            }
+            else if (Input.GetKeyDown(KeyCode.Z))
+            {
+                if (currentState == MovementState.Prone) SetStance(MovementState.Walk, standHeight);
+                else SetStance(MovementState.Prone, proneHeight);
+            }
+        }
+
+        private void SetStance(MovementState newState, float targetHeight)
+        {
+            currentState = newState;
+            controller.height = targetHeight;
+            controller.center = new Vector3(0, targetHeight / 2f, 0);
+        }
+
+        private void HandleMovement()
+        {
+            float x = Input.GetAxis("Horizontal");
+            float z = Input.GetAxis("Vertical");
+
+            // Xác định tốc độ hiện tại
+            float targetSpeed = walkSpeed;
+            if (isInWater)
+            {
+                targetSpeed = swimSpeed;
+            }
+            else
+            {
+                switch (currentState)
+                {
+                    case MovementState.Crouch: targetSpeed = crouchSpeed; break;
+                    case MovementState.Prone: targetSpeed = proneSpeed; break;
+                    default:
+                        if (Input.GetKey(KeyCode.LeftShift) && z > 0)
+                        {
+                            targetSpeed = sprintSpeed;
+                            currentState = MovementState.Sprint;
+                        }
+                        else
+                        {
+                            currentState = MovementState.Walk;
+                        }
+                        break;
+                }
+            }
+
+            Vector3 move = transform.right * x + transform.forward * z;
+            controller.Move(move * targetSpeed * Time.deltaTime);
+
+            // Xử lý Nhảy & Trọng lực
+            if (Input.GetButtonDown("Jump") && isGrounded && !isInWater && currentState != MovementState.Prone)
+            {
+                velocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                currentState = MovementState.InAir;
+            }
+
+            if (isInWater)
+            {
+                // Di chuyển tự do trong nước (lặn/nổi)
+                if (Input.GetButton("Jump")) velocity.y = swimSpeed;
+                else if (Input.GetKey(KeyCode.LeftControl)) velocity.y = -swimSpeed;
+                else velocity.y = 0f;
+            }
+            else
+            {
+                velocity.y += gravity * Time.deltaTime;
+            }
+
+            controller.Move(velocity * Time.deltaTime);
+        }
+    }
+}
